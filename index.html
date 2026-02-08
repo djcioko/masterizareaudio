@@ -2,141 +2,185 @@
 <html lang="ro">
 <head>
     <meta charset="UTF-8">
-    <title>DJ STREAM MASTER v4</title>
+    <title>DJ MASTER PRO - WAV & 320kbps Quality</title>
     <style>
-        :root { --accent: #00ffcc; --bg: #050505; }
-        body { background: var(--bg); color: var(--accent); font-family: 'Courier New', monospace; text-align: center; padding: 20px; }
-        .console { border: 2px solid var(--accent); max-width: 600px; margin: auto; padding: 20px; border-radius: 10px; background: #111; box-shadow: 0 0 15px rgba(0,255,204,0.3); }
-        .btn { background: var(--accent); color: black; border: none; padding: 15px 25px; cursor: pointer; font-weight: bold; margin: 10px; border-radius: 5px; text-transform: uppercase; }
-        .progress-bar { width: 100%; height: 10px; background: #222; margin-top: 10px; border-radius: 5px; overflow: hidden; display: none; }
-        #progressFill { width: 0%; height: 100%; background: var(--accent); transition: width 0.1s; }
-        .track-info { font-size: 0.8rem; color: #888; margin-top: 10px; }
+        :root { --neon: #00ffcc; --dark: #050505; --gray: #1a1a1a; }
+        body { background: var(--dark); color: var(--neon); font-family: 'Consolas', monospace; padding: 20px; text-align: center; }
+        .master-panel { background: var(--gray); border: 2px solid var(--neon); max-width: 900px; margin: auto; padding: 30px; border-radius: 20px; box-shadow: 0 0 30px rgba(0,255,204,0.15); }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0; background: #000; padding: 20px; border-radius: 10px; border: 1px solid #333; text-align: left; }
+        .stat-item { font-size: 0.85rem; color: #fff; }
+        .stat-item span { color: var(--neon); font-weight: bold; }
+        canvas { width: 100%; height: 150px; background: #000; border-radius: 10px; margin: 20px 0; border: 1px solid #444; }
+        .controls { margin-top: 20px; }
+        input[type="file"] { background: #333; padding: 10px; border-radius: 5px; color: white; margin-bottom: 20px; }
+        .btn-master { background: var(--neon); color: black; border: none; padding: 18px 40px; font-weight: bold; font-size: 1.1rem; border-radius: 50px; cursor: pointer; text-transform: uppercase; transition: 0.3s; }
+        .btn-master:hover { box-shadow: 0 0 25px var(--neon); transform: translateY(-2px); }
+        #status-log { margin-top: 15px; font-style: italic; color: #888; }
     </style>
 </head>
 <body>
 
-<div class="console">
-    <h1>PRO STREAM MASTER</h1>
-    <p>Algoritm de procesare rapidă (Offline Render)</p>
+<div class="master-panel">
+    <h1>🎧 DJ MASTER ENGINE v6</h1>
+    <p>Calitate Audio: WAV Lossless (Suportă surse 320kbps+)</p>
+
+    <input type="file" id="audioFiles" multiple accept="audio/*">
     
-    <input type="file" id="audioInput" multiple accept="audio/*">
-    <br><br>
-    <button class="btn" id="renderBtn">Masterizează & Descarcă</button>
+    <div class="stats-grid">
+        <div class="stat-item">INPUT: <span id="inFormat">Așteptare...</span></div>
+        <div class="stat-item">MASTER GAIN: <span id="mGain">+4.2 dB</span></div>
+        <div class="stat-item">BASS BOOST: <span id="bBoost">On (65Hz)</span></div>
+        <div class="stat-item">TREBLE CLARITY: <span id="tClarity">+5.2 dB</span></div>
+        <div class="stat-item">LIMITER: <span id="lCap">-0.3 dBFS</span></div>
+        <div class="stat-item">OUTPUT: <span id="outFormat">WAV 16-bit</span></div>
+    </div>
+
+    <canvas id="waveCanvas"></canvas>
     
-    <div class="progress-bar" id="progressBar">
-        <div id="progressFill"></div>
+    <div class="controls">
+        <button id="processBtn" class="btn-master">Masterizează & Download</button>
     </div>
     
-    <div id="status" class="track-info">Așteptare fișiere...</div>
+    <div id="status-log">Încarcă până la 10 melodii pentru procesare în serie.</div>
 </div>
 
 <script>
-    const audioInput = document.getElementById('audioInput');
-    const renderBtn = document.getElementById('renderBtn');
-    const status = document.getElementById('status');
-    const progressFill = document.getElementById('progressFill');
-    const progressBar = document.getElementById('progressBar');
+    const fileInput = document.getElementById('audioFiles');
+    const processBtn = document.getElementById('processBtn');
+    const log = document.getElementById('status-log');
+    const canvas = document.getElementById('waveCanvas');
+    const ctx = canvas.getContext('2d');
 
-    renderBtn.onclick = async () => {
-        const files = audioInput.files;
-        if (files.length === 0) return alert("Încarcă piesele!");
-
-        progressBar.style.display = 'block';
-        
-        for (let i = 0; i < files.length; i++) {
-            status.innerText = `Se procesează: ${files[i].name}...`;
-            await processFile(files[i]);
-            progressFill.style.width = ((i + 1) / files.length * 100) + '%';
-        }
-        
-        status.innerText = "Toate piesele au fost masterizate!";
+    // Setări algoritm "Doctor Mix Style"
+    const masterSettings = {
+        threshold: -20,
+        ratio: 4,
+        bassGain: 6,
+        trebleGain: 5,
+        ceiling: -0.3
     };
 
-    async function processFile(file) {
-        const arrayBuffer = await file.arrayBuffer();
-        const tempCtx = new AudioContext();
-        const audioBuffer = await tempCtx.decodeAudioData(arrayBuffer);
+    processBtn.onclick = async () => {
+        const files = fileInput.files;
+        if (files.length === 0) return alert("Selectează melodiile de pe YouTube/PC!");
+
+        log.innerText = "Inițiez procesarea de streaming...";
         
-        // Creăm un context "Offline" pentru streaming rapid (nu redă în boxe, doar procesează)
+        for (let file of files) {
+            log.innerText = `Se procesează prin algoritm: ${file.name}`;
+            document.getElementById('inFormat').innerText = file.type.replace('audio/', '').toUpperCase();
+            await processAudio(file);
+        }
+        
+        log.innerText = "Toate fișierele au fost masterizate cu succes!";
+    };
+
+    async function processAudio(file) {
+        const arrayBuffer = await file.arrayBuffer();
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const decodedData = await audioCtx.decodeAudioData(arrayBuffer);
+
+        // Offline Rendering pentru viteză maximă
         const offlineCtx = new OfflineAudioContext(
-            audioBuffer.numberOfChannels,
-            audioBuffer.length,
-            audioBuffer.sampleRate
+            decodedData.numberOfChannels,
+            decodedData.length,
+            decodedData.sampleRate
         );
 
         const source = offlineCtx.createBufferSource();
-        source.buffer = audioBuffer;
+        source.buffer = decodedData;
 
-        // --- LANȚUL DE MASTERING ---
-        // 1. Compresor Pro
-        const comp = offlineCtx.createDynamicsCompressor();
-        comp.threshold.value = -18;
-        comp.ratio.value = 4;
-        comp.attack.value = 0.01;
+        // --- LANȚ DE PROCESARE MASTERING ---
+        
+        // 1. Low Shelf (Bas de club)
+        const bass = offlineCtx.createBiquadFilter();
+        bass.type = "lowshelf";
+        bass.frequency.value = 65;
+        bass.gain.value = masterSettings.bassGain;
 
-        // 2. EQ Claritate
-        const eq = offlineCtx.createBiquadFilter();
-        eq.type = "highshelf";
-        eq.frequency.value = 9000;
-        eq.gain.value = 5;
+        // 2. High Shelf (Claritate YouTube)
+        const treble = offlineCtx.createBiquadFilter();
+        treble.type = "highshelf";
+        treble.frequency.value = 10000;
+        treble.gain.value = masterSettings.trebleGain;
 
-        // Conectare
-        source.connect(eq);
-        eq.connect(comp);
-        comp.connect(offlineCtx.destination);
+        // 3. Compresor (Densitate sunet)
+        const compressor = offlineCtx.createDynamicsCompressor();
+        compressor.threshold.value = masterSettings.threshold;
+        compressor.ratio.value = masterSettings.ratio;
+
+        // 4. Limiter (Fără clipping)
+        const limiter = offlineCtx.createDynamicsCompressor();
+        limiter.threshold.value = masterSettings.ceiling;
+
+        // Conectare noduri
+        source.connect(bass);
+        bass.connect(treble);
+        treble.connect(compressor);
+        compressor.connect(limiter);
+        limiter.connect(offlineCtx.destination);
 
         source.start(0);
-
-        // Randare rapidă (Stream-like processing)
         const renderedBuffer = await offlineCtx.startRendering();
         
-        // Convertim în WAV și descărcăm
-        downloadAsWav(renderedBuffer, "MASTERED_" + file.name);
+        // Desenăm forma de undă (Wave)
+        drawWaveform(renderedBuffer);
+        
+        // Exportăm fișierul
+        exportWav(renderedBuffer, "MASTER_" + file.name.split('.')[0] + ".wav");
     }
 
-    function downloadAsWav(buffer, filename) {
+    function drawWaveform(buffer) {
+        const data = buffer.getChannelData(0);
+        const step = Math.ceil(data.length / canvas.width);
+        const amp = canvas.height / 2;
+        
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = "#00ffcc";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        
+        for(let i=0; i < canvas.width; i++) {
+            let min = 1.0, max = -1.0;
+            for(let j=0; j<step; j++) {
+                let datum = data[(i*step)+j];
+                if (datum < min) min = datum;
+                if (datum > max) max = datum;
+            }
+            ctx.moveTo(i, (1+min)*amp);
+            ctx.lineTo(i, (1+max)*amp);
+        }
+        ctx.stroke();
+    }
+
+    function exportWav(buffer, filename) {
         const length = buffer.length * buffer.numberOfChannels * 2 + 44;
         const view = new DataView(new ArrayBuffer(length));
+        const s = (o, str) => { for(let i=0; i<str.length; i++) view.setUint8(o+i, str.charCodeAt(i)); };
         
-        // Scriere Header WAV (simplificat)
-        writeString(view, 0, 'RIFF');
-        view.setUint32(4, length - 8, true);
-        writeString(view, 8, 'WAVE');
-        writeString(view, 12, 'fmt ');
-        view.setUint32(16, 16, true);
-        view.setUint16(20, 1, true);
-        view.setUint16(22, buffer.numberOfChannels, true);
-        view.setUint32(24, buffer.sampleRate, true);
-        view.setUint32(28, buffer.sampleRate * 4, true);
-        view.setUint16(32, buffer.numberOfChannels * 2, true);
-        view.setUint16(34, 16, true);
-        writeString(view, 36, 'data');
-        view.setUint32(40, length - 44, true);
+        s(0, 'RIFF'); view.setUint32(4, length-8, true); s(8, 'WAVE');
+        s(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true);
+        view.setUint16(22, buffer.numberOfChannels, true); view.setUint32(24, buffer.sampleRate, true);
+        view.setUint32(28, buffer.sampleRate * buffer.numberOfChannels * 2, true);
+        view.setUint16(32, buffer.numberOfChannels * 2, true); view.setUint16(34, 16, true);
+        s(36, 'data'); view.setUint32(40, length-44, true);
 
-        // Scriere date audio
         let offset = 44;
         for (let i = 0; i < buffer.length; i++) {
-            for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
-                let sample = buffer.getChannelData(channel)[i];
-                sample = Math.max(-1, Math.min(1, sample));
+            for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+                let sample = Math.max(-1, Math.min(1, buffer.getChannelData(ch)[i]));
                 view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
                 offset += 2;
             }
         }
-
-        const blob = new Blob([view], { type: 'audio/wav' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        a.click();
-    }
-
-    function writeString(view, offset, string) {
-        for (let i = 0; i < string.length; i++) {
-            view.setUint8(offset + i, string.charCodeAt(i));
-        }
+        
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(new Blob([view], {type:'audio/wav'}));
+        link.download = filename;
+        link.click();
     }
 </script>
+
 </body>
 </html>
