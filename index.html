@@ -2,77 +2,140 @@
 <html lang="ro">
 <head>
     <meta charset="UTF-8">
-    <title>DJ MASTER PRO v3 - High Quality</title>
+    <title>DJ STREAM MASTER v4</title>
     <style>
-        body { background: #0a0a0a; color: #00ffcc; font-family: sans-serif; text-align: center; padding: 50px; }
-        .box { border: 2px solid #00ffcc; padding: 40px; border-radius: 20px; background: #111; max-width: 500px; margin: auto; box-shadow: 0 0 20px #00ffcc; }
-        button { background: #00ffcc; color: #000; border: none; padding: 15px 30px; font-weight: bold; border-radius: 10px; cursor: pointer; margin: 10px; }
-        #visualizer { width: 100%; height: 100px; background: #000; margin-top: 20px; border-radius: 5px; }
+        :root { --accent: #00ffcc; --bg: #050505; }
+        body { background: var(--bg); color: var(--accent); font-family: 'Courier New', monospace; text-align: center; padding: 20px; }
+        .console { border: 2px solid var(--accent); max-width: 600px; margin: auto; padding: 20px; border-radius: 10px; background: #111; box-shadow: 0 0 15px rgba(0,255,204,0.3); }
+        .btn { background: var(--accent); color: black; border: none; padding: 15px 25px; cursor: pointer; font-weight: bold; margin: 10px; border-radius: 5px; text-transform: uppercase; }
+        .progress-bar { width: 100%; height: 10px; background: #222; margin-top: 10px; border-radius: 5px; overflow: hidden; display: none; }
+        #progressFill { width: 0%; height: 100%; background: var(--accent); transition: width 0.1s; }
+        .track-info { font-size: 0.8rem; color: #888; margin-top: 10px; }
     </style>
 </head>
 <body>
 
-<div class="box">
-    <h1>🎧 DJ MASTER ENGINE</h1>
-    <p>Încarcă melodiile de pe YouTube (MP3)</p>
-    <input type="file" id="upload" multiple accept="audio/*"><br><br>
-    <button id="startBtn">START MASTERING & PLAY</button>
-    <canvas id="visualizer"></canvas>
-    <div id="status">Status: Așteptare...</div>
+<div class="console">
+    <h1>PRO STREAM MASTER</h1>
+    <p>Algoritm de procesare rapidă (Offline Render)</p>
+    
+    <input type="file" id="audioInput" multiple accept="audio/*">
+    <br><br>
+    <button class="btn" id="renderBtn">Masterizează & Descarcă</button>
+    
+    <div class="progress-bar" id="progressBar">
+        <div id="progressFill"></div>
+    </div>
+    
+    <div id="status" class="track-info">Așteptare fișiere...</div>
 </div>
 
 <script>
-    let audioCtx;
-    let selectedFiles = [];
+    const audioInput = document.getElementById('audioInput');
+    const renderBtn = document.getElementById('renderBtn');
+    const status = document.getElementById('status');
+    const progressFill = document.getElementById('progressFill');
+    const progressBar = document.getElementById('progressBar');
 
-    // Memorăm fișierele selectate conform cerinței tale [2026-01-15]
-    document.getElementById('upload').onchange = (e) => {
-        selectedFiles = Array.from(e.target.files).slice(0, 10);
-        document.getElementById('status').innerText = `Ai încărcat ${selectedFiles.length} piese.`;
-    };
+    renderBtn.onclick = async () => {
+        const files = audioInput.files;
+        if (files.length === 0) return alert("Încarcă piesele!");
 
-    document.getElementById('startBtn').onclick = async () => {
-        if (!selectedFiles.length) return alert("Pune niște piese!");
+        progressBar.style.display = 'block';
         
-        // Activăm contextul audio la click (Regulă Chrome)
-        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        if (audioCtx.state === 'suspended') await audioCtx.resume();
-
-        document.getElementById('status').innerText = "Procesare... Se aude acum cu Mastering!";
-
-        for (let file of selectedFiles) {
-            const data = await file.arrayBuffer();
-            const buffer = await audioCtx.decodeAudioData(data);
-            playWithMastering(buffer);
+        for (let i = 0; i < files.length; i++) {
+            status.innerText = `Se procesează: ${files[i].name}...`;
+            await processFile(files[i]);
+            progressFill.style.width = ((i + 1) / files.length * 100) + '%';
         }
+        
+        status.innerText = "Toate piesele au fost masterizate!";
     };
 
-    function playWithMastering(buffer) {
-        const source = audioCtx.createBufferSource();
-        source.buffer = buffer;
+    async function processFile(file) {
+        const arrayBuffer = await file.arrayBuffer();
+        const tempCtx = new AudioContext();
+        const audioBuffer = await tempCtx.decodeAudioData(arrayBuffer);
+        
+        // Creăm un context "Offline" pentru streaming rapid (nu redă în boxe, doar procesează)
+        const offlineCtx = new OfflineAudioContext(
+            audioBuffer.numberOfChannels,
+            audioBuffer.length,
+            audioBuffer.sampleRate
+        );
 
-        // --- NODURI DE PROCESARE ---
-        const compressor = audioCtx.createDynamicsCompressor();
-        compressor.threshold.value = -20;
-        compressor.ratio.value = 12;
+        const source = offlineCtx.createBufferSource();
+        source.buffer = audioBuffer;
 
-        const lowBoost = audioCtx.createBiquadFilter();
-        lowBoost.type = "lowshelf";
-        lowBoost.frequency.value = 80;
-        lowBoost.gain.value = 6; // Bas mai puternic pentru DJ
+        // --- LANȚUL DE MASTERING ---
+        // 1. Compresor Pro
+        const comp = offlineCtx.createDynamicsCompressor();
+        comp.threshold.value = -18;
+        comp.ratio.value = 4;
+        comp.attack.value = 0.01;
 
-        const highClarity = audioCtx.createBiquadFilter();
-        highClarity.type = "highshelf";
-        highClarity.frequency.value = 10000;
-        highClarity.gain.value = 4; // Reparăm înaltele din YouTube
+        // 2. EQ Claritate
+        const eq = offlineCtx.createBiquadFilter();
+        eq.type = "highshelf";
+        eq.frequency.value = 9000;
+        eq.gain.value = 5;
 
         // Conectare
-        source.connect(lowBoost);
-        lowBoost.connect(highClarity);
-        highClarity.connect(compressor);
-        compressor.connect(audioCtx.destination);
+        source.connect(eq);
+        eq.connect(comp);
+        comp.connect(offlineCtx.destination);
 
         source.start(0);
+
+        // Randare rapidă (Stream-like processing)
+        const renderedBuffer = await offlineCtx.startRendering();
+        
+        // Convertim în WAV și descărcăm
+        downloadAsWav(renderedBuffer, "MASTERED_" + file.name);
+    }
+
+    function downloadAsWav(buffer, filename) {
+        const length = buffer.length * buffer.numberOfChannels * 2 + 44;
+        const view = new DataView(new ArrayBuffer(length));
+        
+        // Scriere Header WAV (simplificat)
+        writeString(view, 0, 'RIFF');
+        view.setUint32(4, length - 8, true);
+        writeString(view, 8, 'WAVE');
+        writeString(view, 12, 'fmt ');
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
+        view.setUint16(22, buffer.numberOfChannels, true);
+        view.setUint32(24, buffer.sampleRate, true);
+        view.setUint32(28, buffer.sampleRate * 4, true);
+        view.setUint16(32, buffer.numberOfChannels * 2, true);
+        view.setUint16(34, 16, true);
+        writeString(view, 36, 'data');
+        view.setUint32(40, length - 44, true);
+
+        // Scriere date audio
+        let offset = 44;
+        for (let i = 0; i < buffer.length; i++) {
+            for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+                let sample = buffer.getChannelData(channel)[i];
+                sample = Math.max(-1, Math.min(1, sample));
+                view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+                offset += 2;
+            }
+        }
+
+        const blob = new Blob([view], { type: 'audio/wav' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+    }
+
+    function writeString(view, offset, string) {
+        for (let i = 0; i < string.length; i++) {
+            view.setUint8(offset + i, string.charCodeAt(i));
+        }
     }
 </script>
 </body>
