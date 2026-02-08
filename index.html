@@ -1,58 +1,79 @@
-async function processAudio() {
-        if (selectedFiles.length === 0) return alert("Selectează melodii!");
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        
-        for (let file of selectedFiles) {
-            const arrayBuffer = await file.arrayBuffer();
-            const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-            applyDoctorMixLogic(audioBuffer);
-        }
-    }
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+    <meta charset="UTF-8">
+    <title>DJ MASTER PRO v3 - High Quality</title>
+    <style>
+        body { background: #0a0a0a; color: #00ffcc; font-family: sans-serif; text-align: center; padding: 50px; }
+        .box { border: 2px solid #00ffcc; padding: 40px; border-radius: 20px; background: #111; max-width: 500px; margin: auto; box-shadow: 0 0 20px #00ffcc; }
+        button { background: #00ffcc; color: #000; border: none; padding: 15px 30px; font-weight: bold; border-radius: 10px; cursor: pointer; margin: 10px; }
+        #visualizer { width: 100%; height: 100px; background: #000; margin-top: 20px; border-radius: 5px; }
+    </style>
+</head>
+<body>
 
-    function applyDoctorMixLogic(buffer) {
+<div class="box">
+    <h1>🎧 DJ MASTER ENGINE</h1>
+    <p>Încarcă melodiile de pe YouTube (MP3)</p>
+    <input type="file" id="upload" multiple accept="audio/*"><br><br>
+    <button id="startBtn">START MASTERING & PLAY</button>
+    <canvas id="visualizer"></canvas>
+    <div id="status">Status: Așteptare...</div>
+</div>
+
+<script>
+    let audioCtx;
+    let selectedFiles = [];
+
+    // Memorăm fișierele selectate conform cerinței tale [2026-01-15]
+    document.getElementById('upload').onchange = (e) => {
+        selectedFiles = Array.from(e.target.files).slice(0, 10);
+        document.getElementById('status').innerText = `Ai încărcat ${selectedFiles.length} piese.`;
+    };
+
+    document.getElementById('startBtn').onclick = async () => {
+        if (!selectedFiles.length) return alert("Pune niște piese!");
+        
+        // Activăm contextul audio la click (Regulă Chrome)
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') await audioCtx.resume();
+
+        document.getElementById('status').innerText = "Procesare... Se aude acum cu Mastering!";
+
+        for (let file of selectedFiles) {
+            const data = await file.arrayBuffer();
+            const buffer = await audioCtx.decodeAudioData(data);
+            playWithMastering(buffer);
+        }
+    };
+
+    function playWithMastering(buffer) {
         const source = audioCtx.createBufferSource();
         source.buffer = buffer;
 
-        // 1. ANALOG SATURATION (Simulăm lămpile de la Doctor Mix)
-        const shaper = audioCtx.createWaveShaper();
-        shaper.curve = makeDistortionCurve(15); // 15 e nivelul de "warmth"
-
-        // 2. STEREO WIDENER (Lărgim sunetul)
-        const splitter = audioCtx.createChannelSplitter(2);
-        const merger = audioCtx.createChannelMerger(2);
-        const delayL = audioCtx.createDelay();
-        delayL.delayTime.value = 0.012; // Mică întârziere pe stânga pentru lărgire
-
-        // 3. MASTER COMPRESSOR (Setări agresive de DJ)
+        // --- NODURI DE PROCESARE ---
         const compressor = audioCtx.createDynamicsCompressor();
-        compressor.threshold.setValueAtTime(-18, audioCtx.currentTime);
-        compressor.ratio.setValueAtTime(4, audioCtx.currentTime);
-        compressor.attack.setValueAtTime(0.003, audioCtx.currentTime);
+        compressor.threshold.value = -20;
+        compressor.ratio.value = 12;
 
-        // 4. FINAL LIMITER (Să nu sară de 0dB)
-        const limiter = audioCtx.createDynamicsCompressor();
-        limiter.threshold.setValueAtTime(-1.0, audioCtx.currentTime);
-        limiter.ratio.setValueAtTime(20, audioCtx.currentTime);
+        const lowBoost = audioCtx.createBiquadFilter();
+        lowBoost.type = "lowshelf";
+        lowBoost.frequency.value = 80;
+        lowBoost.gain.value = 6; // Bas mai puternic pentru DJ
 
-        // CONECTARE (Lanțul de mastering)
-        source.connect(shaper);
-        shaper.connect(compressor);
-        compressor.connect(limiter);
-        limiter.connect(audioCtx.destination);
+        const highClarity = audioCtx.createBiquadFilter();
+        highClarity.type = "highshelf";
+        highClarity.frequency.value = 10000;
+        highClarity.gain.value = 4; // Reparăm înaltele din YouTube
+
+        // Conectare
+        source.connect(lowBoost);
+        lowBoost.connect(highClarity);
+        highClarity.connect(compressor);
+        compressor.connect(audioCtx.destination);
 
         source.start(0);
-        document.getElementById('status').innerText = "Mastering Analog Style activat!";
     }
-
-    // Funcția care creează "căldura" analogică
-    function makeDistortionCurve(amount) {
-        let k = typeof amount === 'number' ? amount : 50,
-            n_samples = 44100,
-            curve = new Float32Array(n_samples),
-            deg = Math.PI / 180, i = 0, x;
-        for ( ; i < n_samples; ++i ) {
-            x = i * 2 / n_samples - 1;
-            curve[i] = ( 3 + k ) * x * 20 * deg / ( Math.PI + k * Math.abs(x) );
-        }
-        return curve;
-    }
+</script>
+</body>
+</html>
